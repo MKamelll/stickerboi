@@ -1,8 +1,8 @@
 import asyncio
 import os
+import subprocess
 from pathlib import Path
 
-from moviepy import VideoFileClip
 from telegram import Message, Update
 from telegram.ext import (
     ApplicationBuilder,
@@ -16,16 +16,40 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 UPLOAD_DIR = BASE_DIR / "cache" / "uploads"
 GIFS_DIR = BASE_DIR / "cache" / "gifs"
 STICKERS_DIR = BASE_DIR / "cache" / "stickers"
+DEFAULT_GIF_DURATION_SECS = 5
+DEFAULT_GIF_START_SECS = "00:00:00"
+DEFAULT_GIF_SPEEDUP_FACTOR = 2.0
+SPEED_UPS = {
+    "2.0": "setpts=0.5*PTS",
+    "1.5": "setpts=0.67*PTS",
+    "1.25": "setpts=0.8*PTS",
+}
+
+
 for i in (UPLOAD_DIR, GIFS_DIR, STICKERS_DIR):
     i.mkdir(parents=True, exist_ok=True)
 
 
 def convert_mp4_to_gif(input_path: Path, output_path: Path):
-    with VideoFileClip(str(input_path)) as clip:
-        trimmed_clip = clip.subclipped(0, min(clip.duration, 8))
-        muted_clip = trimmed_clip.without_audio()
-        resized_clip = muted_clip.resized(width=320)
-        resized_clip.write_gif(str(output_path), fps=10, logger=None)
+    speed_up = SPEED_UPS.get(str(DEFAULT_GIF_SPEEDUP_FACTOR), "")
+    cmd = [
+        "ffmpeg",
+        "-loglevel",
+        "error",
+        "-y",
+        "-ss",
+        f"{DEFAULT_GIF_START_SECS}",
+        "-t",
+        f"{DEFAULT_GIF_DURATION_SECS}",
+        "-i",
+        f"{input_path}",
+        "-vf",
+        f"{speed_up},fps=10,scale=360:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=64:stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=3:diff_mode=rectangle",
+        "-loop",
+        "0",
+        f"{output_path}",
+    ]
+    subprocess.run(cmd, check=True)
 
 
 class VideoMp4Filter(filters.MessageFilter):
